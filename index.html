@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Farm Together</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #5fae47; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #2b2118; user-select: none; -webkit-user-select: none; }
+  canvas#game { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; cursor: pointer; }
+  .hud { position: fixed; pointer-events: none; color: #fff; text-shadow: 0 1px 3px #000c; }
+  #left { top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #coins { font-size: 22px; font-weight: 800; } #coins small { font-size: 13px; font-weight: 700; }
+  #bag { font-size: 14px; font-weight: 700; }
+  #saved { font-size: 12px; opacity: 0; transition: opacity .5s; } #saved.on { opacity: .85; }
+  #right { top: max(10px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 54px); text-align: right; max-width: 42vw; }
+  #net { font-size: 12px; font-weight: 600; }
+  #event { font-size: 13px; font-weight: 800; color: #ffe066; }
+  @media (max-width: 520px) { #right { top: calc(max(8px, env(safe-area-inset-top)) + 50px); right: max(10px, env(safe-area-inset-right)); max-width: 60vw; } }
+  #toast { top: 24%; left: 16px; right: 16px; text-align: center; font-size: 20px; font-weight: 800; opacity: 0; transition: opacity .35s; }
+  #toast.on { opacity: 1; }
+  #hint { left: 16px; right: 16px; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 84px); text-align: center; font-size: 15px; font-weight: 700; transition: opacity .8s; }
+  #topBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); width: 44px; height: 44px; border-radius: 12px; border: 0;
+            background: #fff8e8ee; font: 20px system-ui, sans-serif; box-shadow: 0 2px 6px #0004; cursor: pointer; }
+  #seeds { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
+           width: min(430px, calc(100vw - 24px)); box-sizing: border-box; padding: 6px; border-radius: 16px; background: #00000033; }
+  .seed { position: relative; height: 64px; min-width: 44px; padding: 0; border: 0; border-radius: 12px; background: #fff8e8; color: #4a3520; box-shadow: 0 2px 0 #c9b38a;
+          font: 700 11px system-ui, sans-serif; cursor: pointer; touch-action: manipulation; transition: transform .12s; }
+  .seed canvas { display: block; width: 36px; height: 36px; margin: 2px auto 0; }
+  .seed.on { background: #ffe9a8; outline: 3px solid #ff9f1c; transform: translateY(-3px); }
+  .seed.locked { background: #e9e1cf; color: #7a6a52; } .seed.locked canvas { filter: grayscale(1) opacity(.45); }
+  .seed.can { animation: glow 1s ease-in-out infinite alternate; }
+  @keyframes glow { from { box-shadow: 0 2px 0 #c9b38a; } to { box-shadow: 0 0 0 3px #ffd23f, 0 2px 0 #c9b38a; } }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #1d2a1288; }
+  #over[hidden], [hidden] { display: none !important; }
+  .card { width: min(380px, calc(100vw - 32px)); box-sizing: border-box; padding: 20px; border-radius: 18px; background: #fffaf0; text-align: center; box-shadow: 0 10px 30px #0005; }
+  .card h2 { margin: 0 0 4px; font-size: 22px; }
+  .card p { margin: 4px 0; font-size: 14px; color: #6b5a44; }
+  .card ol { text-align: left; margin: 12px 0; padding-left: 26px; font-size: 14px; min-height: 40px; }
+  .card li span { float: right; font-variant-numeric: tabular-nums; }
+  button.go { width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: #ff9f1c; color: #fff; font: 700 17px system-ui, sans-serif; cursor: pointer; }
+  .attract .hud, .attract #seeds, .attract #topBtn { display: none !important; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="hud" id="left"><div id="coins"></div><div id="bag"></div><div id="saved">✓ Farm saved</div></div>
+<div class="hud" id="right"><div id="net">Connecting…</div><div id="event"></div></div>
+<div class="hud" id="toast"></div>
+<div class="hud" id="hint"></div>
+<button id="topBtn" title="Top farmers">🏆</button>
+<div id="seeds"></div>
+<div id="over" hidden>
+  <div class="card">
+    <h2>Top farmers</h2>
+    <p>Coins earned at the stand, all time</p>
+    <div id="mine"></div>
+    <ol id="board"><li>Loading the leaderboard…</li></ol>
+    <button class="go" id="back">Back to the farm</button>
+  </div>
+</div>
+<script>
+/* ═══ FARM TOGETHER · a Multiplayer Agent starter ═════════════════════════════════════
+ * Grow a farm together. Co-op, 1–8 players; bot farmhands help out.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ speeds, basket size, bots, the crops (grow time, price, unlock cost), the map
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host, live ops
+ *   WORLD MEMORY .. how the farm survives the room emptying (same code in every starter)
+ *   MAP ........... reading CONFIG.map, walking routes, painting the farm once into a picture
+ *   FIELD ......... how plots are stored, what a tap does to a plot, what everyone sees
+ *   FARM (HOST) ... checking every till/plant/water/harvest, the stand, unlocks, bot farmhands
+ *   ME ............ walking, the job queue (tap or drag over plots), my basket, selling
+ *   DRAW .......... camera, plots, crops, farmers, particles
+ *   HUD & BOARD ... coins, basket, seed bar, toasts, top farmers
+ *   INPUT ......... tap/click/drag plots, WASD + Space, 1–6 seeds
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - Each player writes its OWN entity: `p` (one JSON field: position, facing, walking, tool)
+ *     about 10 times a second, `bag` (the crops in your basket), `look` (name, color) and
+ *     `hb` (heartbeat) once a second.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. Only the host writes the shared fields: `f0`…`f8` (one JSON
+ *     row of plots each), `farm` (coins, unlocked crops, who harvested and who got paid)
+ *     and `bots` (the farmhands). A new host adopts all of it from state.
+ *   - Crops grow on real-time timestamps: watering writes "<crop>@<readyAt>" into the plot,
+ *     so a crop keeps growing when the host changes, and while nobody is on the farm.
+ *   - Everyone else sends intents: "act" {x, y, a, c, k} (till / plant / water / harvest),
+ *     "sell" {k, bag} at the stand and "unlock" {c}. The host checks each one and writes the
+ *     result. A harvest lands in farm.got as [k, you, crop] and you put it in your basket;
+ *     a sale lands in farm.paid as [k, you, coins]. Your plot shows at once until the row
+ *     comes back.
+ *   - The farm outlives the room through WORLD MEMORY (see that section).
+ *   - Live ops (no code): live config `growSpeed` and `priceBonus`; an active live event's
+ *     title shows under the player count.
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "farm-coins": coins each player has earned at the stand, all time.
+ */
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  speed: 3.8,              // tiles per second you walk
+  botSpeed: 2.7,           // tiles per second a farmhand walks
+  seats: 3,                // bot farmhands fill the farm up to this many farmers
+  bagSize: 12,             // crops you can carry before you must sell
+  actMs: 380,              // how long one till / plant / water / harvest takes
+  reach: 2.2,              // tiles: how close you must stand to work a plot (the host checks; positions lag a little)
+  jobMax: 12,              // plots you can queue up by tapping or dragging
+  botPause: [500, 1400],   // ms a farmhand waits between jobs
+  botSellAt: 5,            // a farmhand heads to the stand with this many crops
+  growSpeed: 1,            // crops grow this many times faster (live config: growSpeed)
+  priceBonus: 1,           // stand prices are multiplied by this (live config: priceBonus)
+  rowsPerFlush: 3,         // most plot rows the host writes at once (5 times a second)
+  board: "farm-coins",     // leaderboard name
+  saveNs: "farm-together", // player-save namespace for world memory
+  saveEvery: 10000,        // ms between world-memory saves
+  // The crops: grow = ms from watering to ripe, price = coins each at the stand, unlock = farm coins to unlock.
+  crops: [
+    { id: "turnip", name: "Turnip", grow: 20000, price: 2, unlock: 0 },
+    { id: "carrot", name: "Carrot", grow: 35000, price: 4, unlock: 25 },
+    { id: "tomato", name: "Tomato", grow: 50000, price: 7, unlock: 80 },
+    { id: "corn", name: "Corn", grow: 70000, price: 11, unlock: 180 },
+    { id: "pumpkin", name: "Pumpkin", grow: 100000, price: 18, unlock: 350 },
+    { id: "sunflower", name: "Sunflower", grow: 140000, price: 28, unlock: 700 },
+  ],
+  // The farm. . grass  , flowers  = path  ~ pond  T tree  # fence  F field (plots)
+  // H farmhouse  S farm stand (both drawn from CONFIG.house / CONFIG.stand)
+  map: [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T..,.........,..T.......,....T",
+    "T.HHHHHH...............SSSS..T",
+    "T.HHHHHH....,..........SSSS..T",
+    "T.HHHHHH...............SSSS.,T",
+    "T...=========================T",
+    "T.....########==########.....T",
+    "T.....#FFFFFFFFFFFFFFFF#..,..T",
+    "T.,...#FFFFFFFFFFFFFFFF#.....T",
+    "T.~~..#FFFFFFFFFFFFFFFF#..T..T",
+    "T~~~~.#FFFFFFFFFFFFFFFF#.....T",
+    "T~~~~.#FFFFFFFFFFFFFFFF#.,...T",
+    "T.~~~.#FFFFFFFFFFFFFFFF#.....T",
+    "T.....#FFFFFFFFFFFFFFFF#..T..T",
+    "T..,..#FFFFFFFFFFFFFFFF#.....T",
+    "T.....#FFFFFFFFFFFFFFFF#..,..T",
+    "T.....##################.....T",
+    "T..T.......,.......T.....,...T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+  ],
+  field: { x: 7, y: 7, w: 16, h: 9 },   // the plots, in map tiles
+  house: { x: 2, y: 2, w: 6, h: 3, door: 4.5 },
+  stand: { x: 23, y: 2, w: 4, h: 3 },
+  sellSpot: { x: 25, y: 5.5 },          // stand here (or close) and your basket sells itself
+  spawn: { x: 14.5, y: 5.5 },
+};
+const COLORS = ["#e94f37", "#3f88c5", "#f6ae2d", "#44bba4", "#9b5de5", "#f15bb5", "#ff7f11", "#2ec4b6", "#8ac926", "#6a4c93"];
+const BOT_NAMES = ["Hank", "Clover", "Daisy", "Barley", "Rusty", "Maple", "Poppy", "Juniper", "Basil", "Fern"];
+const CROP = Object.fromEntries(CONFIG.crops.map((c, i) => [c.id, { ...c, i }]));
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'farm-together',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+if (ATTRACT) Object.assign(CONFIG, { seats: 7, growSpeed: 7, botSpeed: 4.2, speed: 4.2, botPause: [120, 420], botSellAt: 6, actMs: 300 });
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true, live: { config: {}, active: [] },
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {}, onLive() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const cache = new Map();
+/** A JSON field (shared or a player's), parsed once per change. Read-only: never mutate what this returns. */
+function field(key, raw, fb) { const m = cache.get(key); if (m && m.raw === raw) return m.v; const v = parse(raw, fb); cache.set(key, { raw, v }); return v; }
+let net = null, player = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map(); // sessionId -> { hb, at } on OUR clock
+/** Players whose heartbeat moved in the last 3s (plus us), sorted by sessionId. */
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+// Live ops: the owner can change these from the dashboard, no new deploy.
+const liveConfig = () => (net && net.live && net.live.config) || {};
+const growSpeed = () => Math.max(0.1, Math.min(20, Number(liveConfig().growSpeed) || CONFIG.growSpeed));
+const priceBonus = () => Math.max(0.1, Math.min(10, Number(liveConfig().priceBonus) || CONFIG.priceBonus));
+const growMs = (c) => CROP[c].grow / growSpeed();
+
+// ── WORLD MEMORY ────────────────────────────────────────────────────────────────────
+// A relay room forgets everything when its last player leaves, so the PLAYERS remember the world:
+//   1. Every CONFIG.saveEvery ms and when the page closes, each player saves a copy of the live
+//      world with its `rev` (how many changes PEOPLE made; bots don't count, so a fresh world
+//      full of bot builds never beats a saved one) to its player save (player.data, namespace
+//      CONFIG.saveNs) and to this browser (localStorage). A copy with a higher rev than the live
+//      world is never overwritten: it is kept and offered.
+//   2. The first player into an empty room becomes host and loads its copy into shared.
+//   3. A player who joins holding a copy with a HIGHER rev than the live world offers it: it
+//      writes the copy into its own entity (`wmh` header, `wm0`, `wm1`… chunks under 2048
+//      characters) and the host adopts it. The copy with more building in it wins; changes
+//      made only in the other copy are lost.
+// The game supplies worldSnapshot(), liveRev() (-1 = no world yet) and loadWorld(world, rev).
+const memory = { saved: null, ready: false, cloud: null, lastJson: "", lastSave: 0, offerRev: 0, offerN: 0 };
+const memoryKey = () => "mpa-world:" + MP_CONNECT.room + (net.offline ? ":offline" : "");
+
+/** Read my copy: this browser's and my cloud save, whichever has the higher rev. */
+async function loadMemory() {
+  let best = null;
+  try { best = JSON.parse(localStorage.getItem(memoryKey()) || "null"); } catch {}
+  if (player) {
+    try {
+      const doc = (await player.data.get(CONFIG.saveNs)).data;
+      if (doc && doc.room === MP_CONNECT.room && doc.world && (!best || doc.rev > best.rev)) best = doc;
+      memory.cloud = true;
+    } catch (e) { memory.cloud = false; console.warn("World memory: no cloud save, this browser only:", e && e.message); }
+  }
+  memory.saved = best && best.room === MP_CONNECT.room && best.world && typeof best.rev === "number" ? best : null;
+  memory.lastJson = memory.saved ? JSON.stringify(memory.saved.world) : "";
+  memory.ready = true;
+}
+
+/** Save my copy of the live world, unless it is unchanged or older than the copy I hold. */
+function rememberWorld() {
+  if (ATTRACT || !memory.ready) return;
+  const rev = liveRev();
+  if (rev < 0 || (memory.saved && rev < memory.saved.rev)) return; // mine is newer: keep it, keep offering it
+  const doc = { room: MP_CONNECT.room, rev, at: Date.now(), world: worldSnapshot() };
+  const json = JSON.stringify(doc.world);
+  if (json === memory.lastJson) return;
+  memory.lastJson = json; memory.saved = doc;
+  try { localStorage.setItem(memoryKey(), JSON.stringify(doc)); } catch {}
+  if (player && memory.cloud) {
+    player.data.set(doc, { namespace: CONFIG.saveNs })
+      .catch((e) => e && e.current ? player.data.set(doc, { namespace: CONFIG.saveNs, version: e.current.version }) : Promise.reject(e))
+      .catch((e) => { if (e && (e.status === 401 || e.status === 403)) memory.cloud = false; });
+  }
+  const tag = document.getElementById("saved");
+  if (tag) { tag.classList.add("on"); setTimeout(() => tag.classList.remove("on"), 1600); }
+}
+
+/** Once a second: offer my copy if it beats the live world (the host simply loads it). */
+function offerMemory() {
+  if (ATTRACT || !memory.ready) return;
+  const mine = memory.saved, live = liveRev(), better = mine && mine.rev > live;
+  if (isHost()) {
+    if (memory.offerRev) clearOffer();
+    if (better && live >= 0 && loadWorld(mine.world, mine.rev)) memoryAdopted("");
+    return;
+  }
+  if (better && memory.offerRev !== mine.rev) {
+    const json = JSON.stringify(mine.world), fields = {}, n = Math.ceil(json.length / 1900);
+    if (n > 40) return; // too big for my entity: keep it for when I am host
+    for (let i = 0; i < n; i++) fields["wm" + i] = "~" + json.slice(i * 1900, (i + 1) * 1900); // "~" keeps it a string
+    net.me.set(fields);
+    net.me.set("wmh", JSON.stringify({ room: MP_CONNECT.room, rev: mine.rev, n })); // header last: chunks land first
+    memory.offerRev = mine.rev; memory.offerN = n;
+  } else if (!better && memory.offerRev) clearOffer();
+}
+function clearOffer() {
+  const fields = { wmh: "" };
+  for (let i = 0; i < memory.offerN; i++) fields["wm" + i] = "";
+  net.me.set(fields); memory.offerRev = 0; memory.offerN = 0;
+}
+
+/** Host, once a second: adopt the best complete offer that beats the live world. */
+function adoptOffers() {
+  let best = null;
+  for (const id of livePlayers()) {
+    const p = S.entities.players[id], h = id !== net.sessionId && parse(p && p.wmh, null);
+    if (!h || h.room !== MP_CONNECT.room || !(h.n <= 40) || !(h.rev > liveRev()) || (best && h.rev <= best.rev)) continue;
+    let json = "";
+    for (let i = 0; i < h.n && json !== null; i++) { const c = p["wm" + i]; json = typeof c === "string" && c[0] === "~" ? json + c.slice(1) : null; }
+    const world = parse(json, null);
+    if (world) best = { rev: h.rev, world, name: p.n || "A player" };
+  }
+  if (best && loadWorld(best.world, best.rev)) memoryAdopted(best.name);
+}
+function memoryAdopted(name) {
+  const text = name ? `${name} brought back the world they saved` : "Welcome back: your saved world is loaded";
+  toast(text); net.send("memory", { text: name ? text : "The host brought back the world they saved" });
+}
+function memoryTick() {
+  offerMemory();
+  if (isHost() && !ATTRACT) adoptOffers();
+  if (performance.now() - memory.lastSave > CONFIG.saveEvery) { memory.lastSave = performance.now(); rememberWorld(); }
+}
+addEventListener("pagehide", () => rememberWorld());
+document.addEventListener("visibilitychange", () => { if (document.hidden) rememberWorld(); });
+
+// ── MAP ─────────────────────────────────────────────────────────────────────────────
+const T = 40, MAP = CONFIG.map, MW = MAP[0].length, MH = MAP.length;
+const FX = CONFIG.field.x, FY = CONFIG.field.y, FW = CONFIG.field.w, FH = CONFIG.field.h;
+const at = (x, y) => (MAP[y] && MAP[y][x]) || "T";
+const solid = (x, y) => "T#~HS".includes(at(x, y));
+const free = (x, y) => !solid(Math.floor(x), Math.floor(y));
+const plotCentre = (x, y) => ({ x: FX + x + 0.5, y: FY + y + 0.5 });
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const rnd = (a, b) => a + Math.random() * (b - a), pick = (l) => l[Math.floor(Math.random() * l.length)];
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+/** A walkable route from a to b as tile centres (ending at b), or [] if there is none. */
+function route(a, b) {
+  const sx = Math.floor(a.x), sy = Math.floor(a.y), gx = Math.floor(b.x), gy = Math.floor(b.y), goal = gx + gy * MW;
+  if (solid(gx, gy) || solid(sx, sy)) return solid(gx, gy) ? [] : [{ x: b.x, y: b.y }];
+  const prev = new Int32Array(MW * MH).fill(-1), q = [sx + sy * MW];
+  prev[q[0]] = q[0];
+  for (let h = 0; h < q.length && prev[goal] < 0; h++) {
+    const k = q[h], x = k % MW, y = (k / MW) | 0;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy, n = nx + ny * MW;
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH || solid(nx, ny) || prev[n] >= 0 || (dx && dy && (solid(x + dx, y) || solid(x, y + dy)))) continue;
+      prev[n] = k; q.push(n);
+    }
+  }
+  if (prev[goal] < 0) return [];
+  const out = [{ x: b.x, y: b.y }];
+  for (let k = prev[goal]; k !== prev[k]; k = prev[k]) out.unshift({ x: (k % MW) + 0.5, y: ((k / MW) | 0) + 0.5 });
+  return out;
+}
+/** The nearest free tile centre to (x, y): where a tap on a tree or fence walks you. */
+function nearestFree(x, y) {
+  for (let r = 0; r < 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (!solid(Math.floor(x) + dx, Math.floor(y) + dy)) return { x: Math.floor(x) + dx + 0.5, y: Math.floor(y) + dy + 0.5 };
+  return CONFIG.spawn;
+}
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/** Paint the whole farm once into a picture; every frame just shows the part on screen. */
+function paintFarm() {
+  const c = document.createElement("canvas"); c.width = MW * T; c.height = MH * T;
+  const g = c.getContext("2d"), r = mulberry32(7), circle = (x, y, rad, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill(); };
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const ch = at(x, y), px = x * T, py = y * T;
+    if (ch === "=") { g.fillStyle = "#dcc08a"; g.fillRect(px, py, T, T); for (let i = 0; i < 4; i++) { g.fillStyle = r() < 0.5 ? "#cdb078" : "#e8d3a2"; g.fillRect(px + r() * 32, py + r() * 32, 8, 5); } continue; }
+    if (ch === "~") {
+      g.fillStyle = "#4aa8e0"; g.fillRect(px, py, T, T);
+      g.fillStyle = "#cdeaf8"; for (const [dx, dy, w, h] of [[0, -1, T, 5], [0, 1, T, 5], [-1, 0, 5, T], [1, 0, 5, T]]) if (at(x + dx, y + dy) !== "~") g.fillRect(px + (dx > 0 ? T - 5 : 0), py + (dy > 0 ? T - 5 : 0), w, h);
+      continue;
+    }
+    const field = ch === "F";
+    g.fillStyle = field ? ((x + y) % 2 ? "#97cf62" : "#9bd266") : (x + y) % 2 ? "#7cc457" : "#80c85a"; g.fillRect(px, py, T, T);
+    for (let i = 0; i < (field ? 6 : 3); i++) { g.fillStyle = field ? "#7fb94c" : "#6aae48"; g.fillRect(px + r() * 34, py + r() * 32, 2, 5); }
+    if (ch === ",") for (let i = 0; i < 3; i++) circle(px + 8 + r() * 24, py + 8 + r() * 24, 3.5, pick(["#ff6fb5", "#ffd23f", "#fff", "#c77dff"]));
+    if (ch === "#") { g.fillStyle = "#b07a4a"; if (at(x - 1, y) === "#" || at(x + 1, y) === "#") { g.fillRect(px, py + 15, T, 5); g.fillRect(px, py + 25, T, 5); } if (at(x, y - 1) === "#" || at(x, y + 1) === "#") g.fillRect(px + 17, py, 6, T); g.fillStyle = "#8a5a34"; g.fillRect(px + 15, py + 10, 10, 24); }
+  }
+  // the farmhouse
+  const hs = CONFIG.house, hx = hs.x * T, hy = hs.y * T, hw = hs.w * T, hh = hs.h * T, roof = hh * 0.55;
+  g.fillStyle = "#0002"; g.fillRect(hx + 5, hy + 10, hw, hh);
+  g.fillStyle = "#f6e7c8"; g.fillRect(hx, hy + roof - 6, hw, hh - roof + 6);
+  g.fillStyle = "#8a5a34"; g.fillRect(hx + hw - 54, hy - 10, 16, 30); // chimney
+  g.fillStyle = "#c8453c"; g.beginPath(); g.moveTo(hx - 8, hy + roof); g.lineTo(hx + 14, hy); g.lineTo(hx + hw - 14, hy); g.lineTo(hx + hw + 8, hy + roof); g.closePath(); g.fill();
+  g.strokeStyle = "#0002"; g.lineWidth = 3; for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(hx - 6 + i * 3, hy + (roof * i) / 4); g.lineTo(hx + hw + 6 - i * 3, hy + (roof * i) / 4); g.stroke(); }
+  const dx = hs.door * T; g.fillStyle = "#7a4a26"; g.fillRect(dx - 13, hy + hh - 36, 26, 36); circle(dx + 7, hy + hh - 17, 2.5, "#ffd23f");
+  for (const wx of [hx + 22, hx + hw - 56]) { g.fillStyle = "#fff"; g.fillRect(wx - 3, hy + hh - 42, 34, 26); g.fillStyle = "#8fd3ff"; g.fillRect(wx, hy + hh - 39, 28, 20); g.fillStyle = "#fff"; g.fillRect(wx + 13, hy + hh - 39, 2, 20); }
+  // the farm stand: counter, crates of produce, a striped awning and a sign
+  const st = CONFIG.stand, sx = st.x * T, sy = st.y * T, sw = st.w * T, sh = st.h * T;
+  g.fillStyle = "#0002"; g.fillRect(sx + 5, sy + 10, sw, sh);
+  g.fillStyle = "#8a5a34"; g.fillRect(sx + 6, sy + 20, 8, sh - 20); g.fillRect(sx + sw - 14, sy + 20, 8, sh - 20);
+  g.fillStyle = "#b5824f"; g.fillRect(sx, sy + sh - 44, sw, 44); g.fillStyle = "#9a6b3e"; for (let i = 0; i < 4; i++) g.fillRect(sx, sy + sh - 40 + i * 10, sw, 2);
+  const crates = ["#a64ac9", "#ff8a1c", "#e53935", "#ffd23f"];
+  crates.forEach((col, i) => { const cx = sx + 14 + i * 36; g.fillStyle = "#c79a62"; g.fillRect(cx, sy + sh - 62, 30, 20); for (let k = 0; k < 5; k++) circle(cx + 5 + k * 5, sy + sh - 64 + (k % 2) * 3, 5, col); });
+  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? "#fff" : "#e8453c"; g.beginPath(); g.moveTo(sx - 6 + i * (sw + 12) / 8, sy); g.lineTo(sx - 6 + (i + 1) * (sw + 12) / 8, sy); g.lineTo(sx - 6 + (i + 1) * (sw + 12) / 8, sy + 26); g.arc(sx - 6 + (i + 0.5) * (sw + 12) / 8, sy + 26, (sw + 12) / 16, 0, Math.PI); g.closePath(); g.fill(); }
+  g.font = "bold 14px system-ui"; g.textAlign = "center"; const tw = g.measureText("FARM STAND").width + 16;
+  g.fillStyle = "#6b4a2a"; g.fillRect(sx + sw / 2 - tw / 2, sy + sh - 22, tw, 20); g.fillStyle = "#fff"; g.fillText("FARM STAND", sx + sw / 2, sy + sh - 7);
+  // trees last, top to bottom, so lower trees overlap higher ones
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    if (at(x, y) !== "T") continue;
+    const cx = x * T + 20, cy = y * T + 20, s = 0.9 + r() * 0.35;
+    g.fillStyle = "#0003"; g.beginPath(); g.ellipse(cx, cy + 15, 17 * s, 6, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#7a4e2a"; g.fillRect(cx - 5, cy - 2, 10, 18);
+    circle(cx, cy - 12, 18 * s, "#2e7d32"); circle(cx - 7 * s, cy - 17, 11 * s, "#43a047"); circle(cx + 8 * s, cy - 9, 10 * s, "#43a047");
+  }
+  return c;
+}
+
+// ── FIELD ───────────────────────────────────────────────────────────────────────────
+// Row y of the field lives in shared field "f<y>": a JSON array of FW plots. A plot is one string:
+//   "g" grass · "s" tilled soil · "<crop>" planted, needs water · "<crop>@<readyAt>" watered, growing
+//   (ripe once Date.now() ≥ readyAt). A tap does the next thing a plot needs: till, plant, water, harvest.
+const view = { rows: Array.from({ length: FH }, () => Array(FW).fill("g")), seen: [] }; // what everyone draws
+function readPlot(t) {
+  if (t === "g" || t === "s") return { k: t };
+  const [c, ready] = String(t).split("@");
+  if (!CROP[c]) return { k: "g" };
+  return ready ? { k: "grow", c, at: Number(ready) || 0 } : { k: "seed", c };
+}
+const cleanPlot = (t) => typeof t === "string" && t.length < 40 && readPlot(t).k !== "g" ? t : "g";
+const cleanRow = (row) => Array.from({ length: FW }, (_, x) => cleanPlot(Array.isArray(row) ? row[x] : "g"));
+/** The next thing this plot needs ("" = nothing yet: it is still growing). */
+function actionFor(p, nowMs) {
+  if (p.k === "g") return "till";
+  if (p.k === "s") return "plant";
+  if (p.k === "seed") return "water";
+  return nowMs >= p.at ? "harvest" : "";
+}
+/** 0 = just watered … 1 = ripe. */
+const stageOf = (p, nowMs) => p.k !== "grow" ? 0 : Math.max(0, Math.min(1, 1 - (p.at - nowMs) / growMs(p.c)));
+/** What a plot looks like to me right now: my own unconfirmed change first, then the room's. */
+function plotAt(x, y) { const m = me.pending.get(x + "," + y); return m && performance.now() < m.until ? m.t : view.rows[y][x]; }
+/** The farm meta everyone reads: coins, unlocked crops, recent harvests and sales. */
+const NO_FARM = { rev: -1, coins: 0, earned: 0, unlocked: ["turnip"], got: [], paid: [] };
+function farmView() { return isHost() && host.adopted ? host.farm : field("shared:farm", S.shared.farm, NO_FARM); }
+/** Keep the view in step with the room; a plot that changed gets a puff of dust, seeds, water or a crop. */
+function syncView() {
+  const host_ = isHost() && host.adopted;
+  for (let y = 0; y < FH; y++) {
+    const src = host_ ? host.rows[y] : field("f" + y, S.shared["f" + y], null), row = view.rows[y];
+    if (!src) continue;
+    const first = !view.seen[y]; view.seen[y] = true; // the first look at a row is not news
+    for (let x = 0; x < FW; x++) {
+      const t = cleanPlot(src[x]);
+      if (t === row[x]) continue;
+      const key = x + "," + y, mine = me.pending.get(key);
+      if (!mine && !first) changeFx(readPlot(row[x]), readPlot(t), x, y);
+      if (mine && readPlot(t).k === mine.k) me.pending.delete(key);
+      row[x] = t;
+    }
+  }
+  for (const [k, m] of me.pending) if (performance.now() > m.until) me.pending.delete(k);
+}
+
+// ── FARM (HOST) ─────────────────────────────────────────────────────────────────────
+const host = { adopted: false, rows: [], farm: { ...NO_FARM }, dirty: new Set(), farmDirty: false, bots: new Map(), lastFlush: 0, lastBots: 0, botsJson: "" };
+let startedAt = 0;
+/** Become host: take the farm exactly as state has it. */
+function adoptFarm() {
+  host.rows = Array.from({ length: FH }, (_, y) => cleanRow(field("f" + y, S.shared["f" + y], null)));
+  const f = field("shared:farm", S.shared.farm, NO_FARM);
+  host.farm = { rev: Number(f.rev) || 0, coins: Number(f.coins) || 0, earned: Number(f.earned) || 0, unlocked: [...(f.unlocked || ["turnip"])], got: [...(f.got || [])], paid: [...(f.paid || [])] };
+  host.dirty.clear(); host.adopted = true; host.bots.clear();
+  for (const b of field("shared:bots", S.shared.bots, [])) host.bots.set(b.i, newBot(b.i, { name: b.n, c: b.c, x: b.x, y: b.y, d: b.d, bag: b.bag || {} }));
+}
+/** World memory: install a saved farm (every plot checked). Crops kept growing while it was saved. */
+function loadWorld(snap, rev) {
+  if (!snap || !Array.isArray(snap.rows) || snap.rows.length !== FH || typeof rev !== "number") return false;
+  host.rows = snap.rows.map(cleanRow);
+  const unlocked = (Array.isArray(snap.unlocked) ? snap.unlocked : []).filter((c) => CROP[c]);
+  host.farm = { ...host.farm, rev, coins: Math.max(0, Number(snap.coins) || 0), earned: Math.max(0, Number(snap.earned) || 0), unlocked: unlocked.includes("turnip") ? unlocked : ["turnip", ...unlocked] };
+  host.adopted = true; host.farmDirty = true; markChangedRows();
+  for (const b of host.bots.values()) b.job = null;
+  return true;
+}
+function worldSnapshot() {
+  const f = farmView(), rows = isHost() && host.adopted ? host.rows : view.rows;
+  return { rows: rows.map((r) => [...r]), coins: f.coins, earned: f.earned, unlocked: [...f.unlocked] };
+}
+function liveRev() { return isHost() && host.adopted ? host.farm.rev : S.shared.farm !== undefined ? Number(field("shared:farm", S.shared.farm, NO_FARM).rev) : -1; }
+/** A brand-new farm: a few rows already growing (some ripe), so there is something to harvest at once. */
+function defaultFarm() {
+  const now = Date.now();
+  host.rows = Array.from({ length: FH }, () => Array(FW).fill("g"));
+  host.farm = { rev: 0, coins: 0, earned: 0, unlocked: ["turnip"], got: [], paid: [] };
+  if (ATTRACT) {
+    host.farm.unlocked = CONFIG.crops.map((c) => c.id);
+    for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+      const c = CONFIG.crops[(Math.floor(x / 3) + y) % CONFIG.crops.length].id, roll = Math.random();
+      host.rows[y][x] = roll < 0.08 ? "s" : roll < 0.14 ? c : c + "@" + Math.round(now + growMs(c) * (roll < 0.4 ? -0.1 : rnd(0.05, 1)));
+    }
+  } else {
+    for (let x = 1; x < FW - 1; x++) {
+      host.rows[1][x] = "turnip@" + (now - 1000);                                // ripe: harvest these first
+      host.rows[2][x] = "turnip@" + Math.round(now + rnd(0.3, 0.9) * growMs("turnip")); // growing
+      host.rows[3][x] = x % 3 ? "turnip" : "s";                                  // planted, needs water
+      host.rows[4][x] = "s";
+    }
+  }
+  host.adopted = true; host.farmDirty = true; markChangedRows();
+}
+function markChangedRows() { for (let y = 0; y < FH; y++) if (JSON.stringify(host.rows[y]) !== JSON.stringify(cleanRow(field("f" + y, S.shared["f" + y], null)))) host.dirty.add(y); }
+const walkerOf = (id) => id === net.sessionId ? me : field("p:" + id, S.entities.players[id] && S.entities.players[id].p, null);
+const pushCapped = (list, item) => { list.push(item); if (list.length > 16) list.shift(); };
+
+/** An "act" intent (or a farmhand's work): do the next thing the plot needs, if it still needs it. */
+function applyAct(from, m, human) {
+  const { x, y, a, c, k } = m || {};
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= FW || y >= FH) return false;
+  if (human) { const w = walkerOf(from); if (!w || dist(w, plotCentre(x, y)) > CONFIG.reach) return false; } // too far away: refused
+  const p = readPlot(host.rows[y][x]), now = Date.now(), f = host.farm;
+  let next = null;
+  if (a === "till" && p.k === "g") next = "s";
+  else if (a === "plant" && p.k === "s" && CROP[c] && f.unlocked.includes(c)) next = c;
+  else if (a === "water" && p.k === "seed") next = p.c + "@" + Math.round(now + growMs(p.c));
+  else if (a === "harvest" && p.k === "grow" && now + 1500 >= p.at) next = "s"; // 1.5s of slack for clocks that differ
+  if (!next) return false;
+  host.rows[y][x] = next; host.dirty.add(y);
+  if (human) { f.rev++; host.farmDirty = true; if (a === "harvest") pushCapped(f.got, [String(k), from, p.c]); }
+  return p;
+}
+/** A "sell" intent at the stand: every crop in the basket turns into farm coins. */
+function applySell(from, m, human) {
+  const bag = m && m.bag, k = String(m && m.k), f = host.farm;
+  if (!bag || typeof bag !== "object" || f.paid.some((q) => q[0] === k)) return 0;
+  if (human) { const w = walkerOf(from); if (!w || dist(w, CONFIG.sellSpot) > 3.5) return 0; }
+  let n = 0, coins = 0;
+  for (const [c, count] of Object.entries(bag)) if (CROP[c] && Number.isInteger(count) && count > 0) { n += count; coins += count * CROP[c].price; }
+  if (!n || n > CONFIG.bagSize) return 0;
+  coins = Math.round(coins * priceBonus());
+  f.coins += coins; f.earned += coins; pushCapped(f.paid, [k, from, coins]); host.farmDirty = true;
+  if (human) f.rev++;
+  return coins;
+}
+/** An "unlock" intent: spend farm coins on a new crop for everyone. */
+function applyUnlock(m) {
+  const c = m && m.c, f = host.farm;
+  if (!CROP[c] || f.unlocked.includes(c) || f.coins < CROP[c].unlock) return;
+  f.coins -= CROP[c].unlock; f.unlocked.push(c); f.rev++; host.farmDirty = true;
+}
+
+function flush(now) {
+  if (now - host.lastFlush < 200) return;
+  host.lastFlush = now;
+  let n = 0;
+  for (const y of host.dirty) { if (n++ >= CONFIG.rowsPerFlush) break; net.setShared("f" + y, JSON.stringify(host.rows[y])); host.dirty.delete(y); }
+  if (host.farmDirty) { host.farmDirty = false; net.setShared("farm", JSON.stringify(host.farm)); }
+}
+function hostTick(dt, now) {
+  if (!host.adopted) {
+    if (S.shared.farm !== undefined) adoptFarm();
+    else if (memory.ready || now - startedAt > 3000) { if (!(memory.saved && loadWorld(memory.saved.world, memory.saved.rev))) defaultFarm(); else memoryAdopted(""); }
+    else return; // first one here: wait a moment for my saved farm
+  }
+  const humans = livePlayers().length - (ATTRACT ? 1 : 0), want = Math.max(0, CONFIG.seats - humans);
+  while (host.bots.size < want) { const id = "b" + Math.random().toString(36).slice(2, 6); host.bots.set(id, newBot(id)); }
+  while (host.bots.size > want) host.bots.delete([...host.bots.keys()].pop());
+  for (const b of host.bots.values()) botStep(b, dt, now);
+  flush(now);
+  if (now - host.lastBots > 150) { // ~6/s, one message for every farmhand, only when something moved
+    host.lastBots = now;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const json = JSON.stringify(botList().map((b) => ({ ...b, x: r2(b.x), y: r2(b.y) })));
+    if (json !== host.botsJson) { host.botsJson = json; net.setShared("bots", json); }
+  }
+}
+
+// Bot farmhands: find the most useful nearby plot (harvest > water > plant > till), walk there, work it,
+// and take the basket to the stand when it fills up.
+function newBot(id, from) {
+  const used = new Set([...host.bots.values()].map((b) => b.name)), taken = new Set([...host.bots.values()].map((b) => b.c).concat(playerColors()));
+  const spot = nearestFree(rnd(FX, FX + FW), rnd(FY, FY + FH));
+  return { id, name: BOT_NAMES.find((n) => !used.has(n)) || "Farmhand", c: COLORS.find((c) => !taken.has(c)) || pick(COLORS), x: spot.x, y: spot.y, d: 0, w: 0, phase: 0,
+    path: [], job: null, bag: {}, nextAt: 0, tool: "", toolAt: 0, ...from };
+}
+const bagCount = (bag) => Object.values(bag).reduce((n, v) => n + (Number(v) || 0), 0);
+/** The next job for a worker: one of the 3 nearest plots that most need doing. Plots another worker is
+ *  heading for are skipped, and plots right next to a person count as far away (people get first go). */
+function pickTask(w) {
+  const claimed = new Set([...host.bots.values()].filter((b) => b !== w && b.job).map((b) => b.job.x + "," + b.job.y).concat(me.jobs.map((j) => j.x + "," + j.y)));
+  const people = ATTRACT ? [] : farmers(0, performance.now()).filter((f) => !f.bot);
+  const lists = { harvest: [], water: [], plant: [], till: [] }, now = Date.now();
+  for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+    if (claimed.has(x + "," + y)) continue;
+    const a = actionFor(readPlot(isHost() ? host.rows[y][x] : plotAt(x, y)), now), c = plotCentre(x, y);
+    if (a) lists[a].push({ x, y, a, d: dist(w, c) + (people.some((f) => dist(f, c) < 3) ? 12 : 0) + (ATTRACT && (x < 5 || y > 5) ? 20 : 0) }); // ?attract: where the camera looks
+  }
+  if (ATTRACT) { // the preview: each worker keeps its own patch going (harvest, replant, water) so the field stays full
+    const all = Object.values(lists).flat().sort((p, q) => p.d - q.d);
+    return all.length ? all[Math.floor(Math.random() * Math.min(2, all.length))] : null;
+  }
+  for (const a of ["harvest", "water", "plant", "till"]) {
+    const l = lists[a].sort((p, q) => p.d - q.d);
+    if (l.length && (a !== "till" || Math.random() < 0.5)) return l[Math.floor(Math.random() * Math.min(3, l.length))];
+  }
+  return null;
+}
+/** Bots like the crops they have just unlocked best. */
+function botSeed() { const u = farmView().unlocked; return u[Math.min(u.length - 1, Math.floor(Math.pow(Math.random(), 0.6) * u.length))]; }
+function botStep(b, dt, now) {
+  if (b.path.length) { b.w = 1; b.phase += dt * 11; step(b, CONFIG.botSpeed, dt); return; }
+  b.w = 0;
+  if (now - b.toolAt < CONFIG.actMs) return; // busy working a plot
+  b.tool = "";
+  if (b.selling) { // at the stand: sell everything
+    applySell(b.id, { k: "b" + Math.random().toString(36).slice(2, 8), bag: b.bag }, false);
+    b.bag = {}; b.selling = false; b.nextAt = now + rnd(...CONFIG.botPause); return;
+  }
+  if (b.job) {
+    const j = b.job; b.job = null;
+    const p = readPlot(host.rows[j.y][j.x]), a = actionFor(p, Date.now()), c = plotCentre(j.x, j.y);
+    const person = !ATTRACT && farmers(0, now).some((f) => !f.bot && dist(f, c) < 1); // someone is standing on it: leave it to them
+    if (a && !person && dist(b, c) < 1.2) {
+      if (applyAct(b.id, { x: j.x, y: j.y, a, c: botSeed() }, false) && a === "harvest") b.bag[p.c] = (b.bag[p.c] || 0) + 1;
+      b.tool = a; b.toolAt = now; b.d = 0;
+    }
+    b.nextAt = now + rnd(...CONFIG.botPause); return;
+  }
+  if (now < b.nextAt) return;
+  const n = bagCount(b.bag), task = n < CONFIG.botSellAt ? pickTask(b) : null;
+  if (!task || (n && task.a !== "harvest" && Math.random() < 0.15)) {
+    if (n) { b.selling = true; b.path = route(b, { x: CONFIG.sellSpot.x + rnd(-1, 1), y: CONFIG.sellSpot.y + rnd(-0.2, 0.3) }); }
+    else { b.path = route(b, nearestFree(rnd(FX - 2, FX + FW + 2), rnd(FY - 1, FY + FH))); b.nextAt = now + rnd(1500, 3000); }
+    return;
+  }
+  b.job = task; b.path = route(b, { x: FX + task.x + rnd(0.35, 0.65), y: FY + task.y + rnd(0.4, 0.7) });
+}
+/** Move a walker along its path; facing follows the step. */
+function step(a, speed, dt) {
+  const p = a.path[0], dx = p.x - a.x, dy = p.y - a.y, d = Math.hypot(dx, dy), s = speed * dt;
+  if (d <= s) { a.x = p.x; a.y = p.y; a.path.shift(); } else { a.x += (dx / d) * s; a.y += (dy / d) * s; }
+  if (d > 0.01) a.d = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 1 : 2) : dy < 0 ? 3 : 0;
+}
+function botList() {
+  if (isHost()) return [...host.bots.values()].map((b) => ({ i: b.id, n: b.name, c: b.c, x: b.x, y: b.y, d: b.d, w: b.w, t: b.tool, bag: b.bag }));
+  return field("shared:bots", S.shared.bots, []);
+}
+
+// ── ME ──────────────────────────────────────────────────────────────────────────────
+const me = { x: CONFIG.spawn.x, y: CONFIG.spawn.y, d: 0, w: 0, phase: 0, path: [], jobs: [], bag: {}, seed: "turnip", tool: "", toolAt: -1e9,
+  pending: new Map(), credited: new Set(), sale: null, earned: 0, unsent: 0, lastSend: 0, sent: "", sentBag: "", autoAt: 0 };
+let myLook = { n: "", c: COLORS[0] };
+const keys = new Set();
+const newKey = () => Math.random().toString(36).slice(2, 9);
+function myTick(dt, now) {
+  let mx = 0, my = 0;
+  if (!ATTRACT) { mx = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0); my = (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0); }
+  if (ATTRACT) autopilot(now);
+  const busy = now - me.toolAt < CONFIG.actMs;
+  if ((mx || my) && !busy) {
+    me.path = []; me.jobs = [];
+    const len = Math.hypot(mx, my), s = (CONFIG.speed * dt) / len, r = 0.25;
+    const ok = (x, y) => free(x - r, y - r) && free(x + r, y - r) && free(x - r, y + r) && free(x + r, y + r);
+    if (ok(me.x + mx * s, me.y)) me.x += mx * s;
+    if (ok(me.x, me.y + my * s)) me.y += my * s;
+    me.d = Math.abs(mx) > Math.abs(my) ? (mx < 0 ? 1 : 2) : my < 0 ? 3 : 0; me.w = 1;
+  } else if (me.path.length && !busy) { step(me, CONFIG.speed, dt); me.w = 1; }
+  else {
+    me.w = 0;
+    if (!busy && me.jobs.length) { // next queued plot: walk there, then work it
+      const j = me.jobs[0], c = plotCentre(j.x, j.y);
+      if (dist(me, c) < 0.75) { me.jobs.shift(); workPlot(j.x, j.y); }
+      else { me.path = route(me, { x: c.x, y: c.y + 0.1 }); if (!me.path.length) me.jobs.shift(); }
+    }
+  }
+  if (me.w) me.phase += dt * 11;
+  if (!busy) me.tool = "";
+  basketTick(now);
+  publishMe(now, false);
+}
+/** My position, facing and tool, ~10 times a second (forced right before an act, so the host sees me there). */
+function publishMe(now, force) {
+  const r2 = (v) => Math.round(v * 100) / 100, p = JSON.stringify({ x: r2(me.x), y: r2(me.y), d: me.d, w: me.w, t: me.tool });
+  if (force || (p !== me.sent && now - me.lastSend > 100) || now - me.lastSend > 2000) { me.lastSend = now; me.sent = p; net.me.set("p", p); }
+}
+/** Do the next thing plot (x, y) needs. My change shows at once; the host confirms it in the row. */
+function workPlot(x, y) {
+  const p = readPlot(plotAt(x, y)), nowMs = Date.now(), a = actionFor(p, nowMs);
+  if (!a) { toast(`${CROP[p.c].name} is growing · ${Math.ceil((p.at - nowMs) / 1000)}s`); return; }
+  if (a === "harvest" && bagCount(me.bag) >= CONFIG.bagSize) { toast("Your basket is full: sell at the stand"); return; }
+  if (a === "plant" && !farmView().unlocked.includes(me.seed)) me.seed = "turnip";
+  const k = newKey(), msg = { x, y, a, c: me.seed, k };
+  const shown = a === "till" ? "s" : a === "plant" ? me.seed : a === "water" ? p.c + "@" + Math.round(nowMs + growMs(p.c)) : "s";
+  me.pending.set(x + "," + y, { t: shown, k: readPlot(shown).k, until: performance.now() + 2500 });
+  me.tool = a; me.toolAt = performance.now(); me.d = 0; publishMe(me.toolAt, true);
+  changeFx(p, readPlot(shown), x, y); sfx(a);
+  if (isHost()) applyAct(net.sessionId, msg, true); else net.send("act", msg);
+  if (me.hint) { me.hint = false; $("hint").style.opacity = 0; }
+}
+/** My basket: take the crops the host says I harvested; sell them all at the stand. */
+function basketTick(now) {
+  const f = farmView(), id = net.sessionId;
+  for (const [k, who, c] of f.got) if (who === id && !me.credited.has(k) && CROP[c]) { me.credited.add(k); me.bag[c] = (me.bag[c] || 0) + 1; }
+  for (const [k, who, coins] of f.paid) {
+    if (who !== id || !me.sale || me.sale.k !== k) continue;
+    for (const [c, n] of Object.entries(me.sale.bag)) me.bag[c] = Math.max(0, (me.bag[c] || 0) - n);
+    me.earned += coins; me.unsent += coins; me.sale = null;
+    toast(`Sold! +${coins} farm coins`); sfx("coin");
+  }
+  for (const c of Object.keys(me.bag)) if (!me.bag[c]) delete me.bag[c];
+  const near = dist(me, CONFIG.sellSpot) < 1.8;
+  if (near && bagCount(me.bag) && (!me.sale || now - me.sale.sentAt > 1500)) { // the same sale is re-sent until the host pays it
+    if (!me.sale) me.sale = { k: newKey(), bag: { ...me.bag } };
+    me.sale.sentAt = now;
+    const msg = { k: me.sale.k, bag: me.sale.bag };
+    publishMe(now, true); // so the host sees me at the stand
+    if (isHost()) applySell(id, msg, true); else net.send("sell", msg);
+  }
+  const bag = JSON.stringify(me.bag);
+  if (bag !== me.sentBag) { me.sentBag = bag; net.me.set("bag", bag); }
+}
+/** ?attract: my farmer works like a farmhand so the preview never idles. */
+function autopilot(now) {
+  if (me.path.length || me.jobs.length || now < me.autoAt) return;
+  me.autoAt = now + rnd(150, 500);
+  if (bagCount(me.bag) >= 6) { me.path = route(me, CONFIG.sellSpot); return; }
+  const t = pickTask(me);
+  if (t) { me.seed = botSeed(); me.jobs.push({ x: t.x, y: t.y }); }
+}
+function tryUnlock(c) {
+  const f = farmView(), crop = CROP[c];
+  if (f.unlocked.includes(c)) return;
+  if (f.coins < crop.unlock) { toast(`${crop.name} needs ${crop.unlock} farm coins`); return; }
+  if (isHost()) applyUnlock({ c }); else net.send("unlock", { c });
+  me.seed = c;
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById("game"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+function fit() { DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR; }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+const cam = { x: CONFIG.spawn.x * T, y: CONFIG.spawn.y * T, z: 1 };
+const dot = (g, x, y, r, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+const leaf = (g, x, y, rx, ry, rot, col) => { g.fillStyle = col; g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); g.fill(); };
+const stroke = (g, col, w, pts) => { g.strokeStyle = col; g.lineWidth = w; g.lineCap = "round"; g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); };
+
+/** One crop, bottom centre at (x, y). s: 0 sprout … 1 ripe. Also draws the seed-bar icons. */
+function drawCrop(g, id, s, x, y, t) {
+  const k = 0.45 + 0.55 * s, sway = Math.sin(t * 2.2 + x * 0.07) * 1.6 * s, ripe = s >= 1;
+  if (s < 0.18) { stroke(g, "#4f9a34", 2, [[x, y], [x, y - 6]]); leaf(g, x - 4, y - 7, 4, 2.2, -0.5, "#7ccf4f"); leaf(g, x + 4, y - 7, 4, 2.2, 0.5, "#7ccf4f"); return; }
+  if (id === "turnip") {
+    if (ripe) { dot(g, x, y - 5, 8.5, "#f6eef8"); g.fillStyle = "#a64ac9"; g.beginPath(); g.arc(x, y - 5, 8.5, Math.PI, 0); g.fill(); }
+    for (const a of [-0.6, 0, 0.6]) leaf(g, x + Math.sin(a) * 7 * k + sway, y - (ripe ? 18 : 11) * k, 4 * k, 9 * k, a, a ? "#58b33c" : "#6fcb48");
+  } else if (id === "carrot") {
+    if (ripe) { g.fillStyle = "#ff8a1c"; g.beginPath(); g.moveTo(x - 7, y - 6); g.lineTo(x + 7, y - 6); g.lineTo(x, y + 4); g.closePath(); g.fill(); }
+    for (const a of [-0.5, -0.2, 0.15, 0.45]) stroke(g, "#4caf3c", 2.2, [[x, y - 5], [x + Math.sin(a) * 14 * k + sway, y - 5 - 18 * k]]);
+    for (const a of [-0.35, 0.3]) leaf(g, x + Math.sin(a) * 12 * k + sway, y - 5 - 16 * k, 3.5, 5, a, "#66c24c");
+  } else if (id === "tomato") {
+    stroke(g, "#9a6b3e", 3, [[x + 6, y], [x + 6, y - 30 * k]]);
+    for (const [dx, dy, r] of [[-5, 10, 7], [4, 16, 7], [-3, 22, 6], [5, 27, 5]]) dot(g, x + dx * k + sway * (dy / 27), y - dy * k, r * k, dy % 2 ? "#3f9a35" : "#4fae3e");
+    if (ripe) for (const [dx, dy] of [[-7, 9], [6, 14], [-2, 19], [7, 24]]) { dot(g, x + dx, y - dy, 4.5, "#e53935"); dot(g, x + dx - 1.5, y - dy - 1.5, 1.3, "#ffffffaa"); }
+  } else if (id === "corn") {
+    stroke(g, "#5d9b2f", 3.5, [[x, y], [x + sway, y - 40 * k]]);
+    for (const [dy, side] of [[12, -1], [20, 1], [28, -1], [34, 1]]) stroke(g, "#6fb83d", 3, [[x + sway * (dy / 40), y - dy * k], [x + side * 12 * k + sway, y - (dy - 6) * k], [x + side * 15 * k + sway, y - (dy - 2) * k]]);
+    if (ripe) { leaf(g, x + 6 + sway * 0.6, y - 24, 4.5, 9, 0.25, "#f4c430"); leaf(g, x + 3 + sway * 0.6, y - 22, 3, 9, 0.5, "#7cbf45"); }
+  } else if (id === "pumpkin") {
+    for (const [dx, dy, r] of [[-11, 4, 7], [10, 3, 7], [-3, 11, 8], [9, 12, 6]]) leaf(g, x + dx * k + sway * 0.5, y - dy * k, r * k, r * k * 0.8, dx * 0.05, "#4f9e38");
+    stroke(g, "#5a9b33", 2, [[x - 14 * k, y - 2], [x + 14 * k, y - 4]]);
+    if (ripe) { for (const dx of [-7, 7, 0]) leaf(g, x + dx, y - 9, dx ? 8 : 8.5, 10, 0, dx ? "#f28a1a" : "#ff9a2a"); stroke(g, "#6b4a2a", 3, [[x, y - 18], [x + 2, y - 23]]); }
+  } else if (id === "sunflower") {
+    stroke(g, "#4f9a34", 3.5, [[x, y], [x + sway, y - 44 * k]]);
+    leaf(g, x - 7 * k, y - 16 * k, 7 * k, 3.5 * k, -0.4, "#5fb43f"); leaf(g, x + 7 * k, y - 26 * k, 7 * k, 3.5 * k, 0.4, "#5fb43f");
+    const hx = x + sway, hy = y - 44 * k;
+    if (ripe) { for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 + t * 0.3; leaf(g, hx + Math.cos(a) * 8, hy + Math.sin(a) * 8, 5, 2.6, a, "#ffcf1f"); } dot(g, hx, hy, 6, "#7a4a1e"); }
+    else dot(g, hx, hy, 4 * k, "#7cbf45");
+  }
+}
+const ease = (k) => 1 - Math.pow(1 - k, 3);
+/** A farmer, feet at (x, y) in px. f: { c color, d facing (0 down 1 left 2 right 3 up), phase, w walking, t tool, tk 0…1 into the swing, bag, bot }. */
+function drawFarmer(g, x, y, f) {
+  const bob = f.w ? Math.abs(Math.sin(f.phase)) * 2 : 0, leg = f.w ? Math.sin(f.phase) * 3 : 0, side = f.d === 1 ? -1 : 1;
+  g.fillStyle = "#0003"; g.beginPath(); g.ellipse(x, y, 11, 4.5, 0, 0, Math.PI * 2); g.fill();
+  const n = bagCount(f.bag || {});
+  if (n && f.d === 3) drawBasket(g, x, y - 20 - bob, f.bag);
+  g.fillStyle = "#34558b"; g.fillRect(x - 6, y - 10 - bob, 5, 9 + leg); g.fillRect(x + 1, y - 10 - bob, 5, 9 - leg);
+  g.fillStyle = f.c; g.beginPath(); g.roundRect(x - 9, y - 25 - bob, 18, 17, 6); g.fill();
+  g.fillStyle = "#3d64a8"; g.fillRect(x - 6, y - 20 - bob, 12, 11); g.fillRect(x - 6, y - 25 - bob, 2, 6); g.fillRect(x + 4, y - 25 - bob, 2, 6);
+  const tk = f.t ? ease(f.tk) : 0, lift = f.t === "harvest" ? -10 * Math.sin(tk * Math.PI) : 0;
+  dot(g, x - 9, y - 17 - bob + leg * 0.5, 3.5, f.c); dot(g, x + 9 * side, y - 17 - bob - leg * 0.5 + lift, 3.5, f.c);
+  const hy = y - 33 - bob;
+  dot(g, x, hy, 10, "#ffd9b3");
+  if (f.d !== 3) { const ox = f.d === 1 ? -3 : f.d === 2 ? 3 : 0; if (f.d !== 2) dot(g, x - 3.5 + ox, hy + 1, 1.6, "#2b2118"); if (f.d !== 1) dot(g, x + 3.5 + ox, hy + 1, 1.6, "#2b2118"); if (!f.d) { dot(g, x - 6, hy + 4, 1.8, "#ff9fb0"); dot(g, x + 6, hy + 4, 1.8, "#ff9fb0"); } }
+  if (f.bot) { g.fillStyle = f.c; g.beginPath(); g.arc(x, hy - 3, 10.5, Math.PI, 0); g.fill(); g.fillRect(f.d === 1 ? x - 16 : x - 2, hy - 4, f.d === 0 || f.d === 3 ? 0 : 18, 3); if (!f.d) g.fillRect(x - 9, hy - 4, 18, 3); }
+  else { leaf(g, x, hy - 5, 16, 4.5, 0, "#e8c170"); g.fillStyle = "#e8c170"; g.beginPath(); g.arc(x, hy - 6, 8.5, Math.PI, 0); g.fill(); g.fillStyle = f.c; g.fillRect(x - 8.5, hy - 8, 17, 2.5); }
+  if (n && f.d !== 3) drawBasket(g, x - 13 * side, y - 12 - bob, f.bag);
+  // the tool, mid-swing
+  const hx = x + 10 * side, hy2 = y - 17 - bob;
+  if (f.t === "till") { const a = -1.9 + 1.7 * tk; const ex = hx + Math.cos(a) * 20 * side, ey = hy2 + Math.sin(a) * 20; stroke(g, "#8a5a34", 3, [[hx, hy2], [ex, ey]]); stroke(g, "#9aa3ad", 4, [[ex, ey], [ex + 5 * side, ey + 4]]); }
+  if (f.t === "water") { g.save(); g.translate(hx + 4 * side, hy2); g.rotate(0.6 * tk * side); g.fillStyle = "#4fa3d9"; g.fillRect(-6, -5, 12, 10); stroke(g, "#4fa3d9", 2.5, [[5 * side, -2], [12 * side, -7]]); g.restore(); }
+  if (f.t === "plant") for (let i = 0; i < 3; i++) dot(g, hx + side * (4 + i * 4) * tk, hy2 + 4 + i * 5 * tk, 1.8, "#c98b3a");
+}
+function drawBasket(g, x, y, bag) {
+  g.fillStyle = "#b07a3a"; g.beginPath(); g.roundRect(x - 7, y - 4, 14, 10, 3); g.fill(); stroke(g, "#8a5a24", 1.5, [[x - 6, y - 4], [x, y - 10], [x + 6, y - 4]]);
+  const crops = Object.keys(bag).filter((c) => CROP[c] && bag[c] > 0).slice(0, 3), col = { turnip: "#b46ad6", carrot: "#ff8a1c", tomato: "#e53935", corn: "#f4c430", pumpkin: "#f28a1a", sunflower: "#ffcf1f" };
+  crops.forEach((c, i) => dot(g, x - 4 + i * 4, y - 4, 3.2, col[c] || "#fff"));
+}
+
+// Particles: dust when you till, seeds, water drops, a crop popping up, coins at the stand.
+const fx = [];
+function burst(x, y, n, col, speed, up, life = 600, r = 2.5) { for (let i = 0; i < n; i++) { const a = rnd(0, Math.PI * 2), s = rnd(0.3, 1) * speed; fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6 - up, g: 260, life, t0: performance.now(), col, r }); } }
+function changeFx(from, to, x, y) {
+  const c = plotCentre(x, y), px = c.x * T, py = c.y * T;
+  if (from.k === "g" && to.k === "s") burst(px, py + 6, 10, "#8a5a34", 70, 60);
+  else if (from.k === "s" && to.k === "seed") burst(px, py + 4, 6, "#d9a04a", 40, 50, 450, 2);
+  else if (from.k === "seed" && to.k === "grow") burst(px, py - 6, 12, "#7cc8ff", 60, 30, 550, 2.2);
+  else if (from.k === "grow" && to.k === "s") { fx.push({ x: px, y: py - 8, vx: 0, vy: -90, g: 120, life: 700, t0: performance.now(), crop: from.c }); burst(px, py, 8, "#fff6b0", 80, 70, 500, 2); }
+}
+function drawFx(now) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const p = fx[i], age = (now - p.t0) / 1000, k = age * 1000 / p.life;
+    if (k >= 1) { fx.splice(i, 1); continue; }
+    const x = p.x + p.vx * age, y = p.y + p.vy * age + 0.5 * p.g * age * age;
+    ctx.globalAlpha = 1 - k * k;
+    if (p.crop) { ctx.save(); ctx.translate(x, y); ctx.scale(0.9, 0.9); drawCrop(ctx, p.crop, 1, 0, 10, 0); ctx.restore(); }
+    else if (p.text) { ctx.font = "800 16px system-ui"; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "#5a3a00"; ctx.strokeText(p.text, x, y); ctx.fillStyle = "#ffd23f"; ctx.fillText(p.text, x, y); }
+    else dot(ctx, x, y, p.r, p.col);
+  }
+  ctx.globalAlpha = 1;
+}
+
+const farmPic = paintFarm(), views = new Map(); // id -> eased { x, y, phase, t, tt }
+/** Everyone on the farm: me, other live players (eased toward their last position) and the farmhands. */
+function farmers(dt, now) {
+  const out = [{ id: net.sessionId, name: myLook.n, c: myLook.c, x: me.x, y: me.y, d: me.d, w: me.w, phase: me.phase, t: me.tool, tk: (now - me.toolAt) / CONFIG.actMs, bag: me.bag, mine: true }];
+  const live = new Set(livePlayers()), k = 1 - Math.pow(0.002, dt);
+  const add = (id, q, info, eased) => {
+    let v = views.get(id); if (!v) { v = { x: q.x, y: q.y, phase: 0, t: "", tt: 0 }; views.set(id, v); }
+    v.x += (q.x - v.x) * (eased ? k : 1); v.y += (q.y - v.y) * (eased ? k : 1); if (q.w) v.phase += dt * 11;
+    if ((q.t || "") !== v.t) { v.t = q.t || ""; v.tt = now; }
+    out.push({ id, ...info, x: v.x, y: v.y, d: q.d, w: q.w, phase: v.phase, t: v.t, tk: (now - v.tt) / CONFIG.actMs });
+  };
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    if (id === net.sessionId || !live.has(id)) continue;
+    const q = field("p:" + id, p.p, null), look = field("look:" + id, p.look, {});
+    if (q) add(id, q, { name: String(look.n ?? "Farmer"), c: look.c || "#ccc", bag: field("bag:" + id, p.bag, {}) }, true);
+  }
+  const hostNow = isHost();
+  for (const b of botList()) add(b.i, b, { name: b.n, c: b.c, bag: b.bag || {}, bot: true }, !hostNow); // the host draws its own bots from the live simulation
+  return out;
+}
+function draw(now, dt) {
+  const t = now / 1000;
+  const z = ATTRACT ? Math.min(W / (15 * T), H / (8.6 * T)) : Math.max(0.9, Math.min(1.6, Math.min(W / (10 * T), H / (11 * T))));
+  cam.z = z; const halfW = W / 2 / z, halfH = H / 2 / z;
+  const focus = ATTRACT ? { x: 18.8 * T, y: 8.2 * T } : { x: me.x * T, y: me.y * T + 30 }; // you sit a little above the seed bar
+  const tx = MW * T < 2 * halfW ? MW * T / 2 : Math.max(halfW, Math.min(MW * T - halfW, focus.x)), ty = MH * T < 2 * halfH ? MH * T / 2 : Math.max(halfH, Math.min(MH * T - halfH, focus.y));
+  cam.x += (tx - cam.x) * Math.min(1, dt * 6); cam.y += (ty - cam.y) * Math.min(1, dt * 6);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = "#2e7d32"; ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(DPR * z, 0, 0, DPR * z, DPR * (W / 2 - cam.x * z), DPR * (H / 2 - cam.y * z));
+  ctx.drawImage(farmPic, 0, 0);
+  for (let i = 0; i < 10; i++) { const a = (Math.sin(t * 2 + i * 1.7) + 1) / 2; ctx.fillStyle = `rgba(255,255,255,${a * 0.7})`; ctx.fillRect((1.4 + ((i * 0.37) % 3)) * T, (9.6 + ((i * 0.61) % 3)) * T, 10, 2); }
+  // plots: soil underneath, crops as sprites so farmers walk in front of and behind them
+  const nowMs = Date.now(), sprites = [], x0 = Math.max(0, Math.floor((cam.x - halfW) / T) - FX - 1), x1 = Math.min(FW - 1, Math.ceil((cam.x + halfW) / T) - FX + 1);
+  const y0 = Math.max(0, Math.floor((cam.y - halfH) / T) - FY - 1), y1 = Math.min(FH - 1, Math.ceil((cam.y + halfH) / T) - FY + 1);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const p = readPlot(plotAt(x, y)), px = (FX + x) * T, py = (FY + y) * T;
+    if (p.k === "g") continue;
+    ctx.fillStyle = p.k === "grow" ? "#6e4b2e" : "#9c6c43"; ctx.beginPath(); ctx.roundRect(px + 2, py + 3, T - 4, T - 5, 7); ctx.fill();
+    ctx.fillStyle = p.k === "grow" ? "#5e3f26" : "#86593a"; for (const fy of [12, 22, 31]) ctx.fillRect(px + 7, py + fy, T - 14, 2.5);
+    if (p.k === "seed") { dot(ctx, px + 20, py + 24, 6, "#86593a"); for (const [sx, sy] of [[-3, -1], [2, 1], [0, -3]]) dot(ctx, px + 20 + sx, py + 23 + sy, 1.5, "#e2b56a");
+      const b = Math.sin(t * 4 + x + y) * 2; ctx.fillStyle = "#fffd"; ctx.beginPath(); ctx.arc(px + 30, py + 8 + b, 6.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#3d9be0"; ctx.beginPath(); ctx.moveTo(px + 30, py + 3 + b); ctx.quadraticCurveTo(px + 34.5, py + 9 + b, px + 30, py + 11.5 + b); ctx.quadraticCurveTo(px + 25.5, py + 9 + b, px + 30, py + 3 + b); ctx.fill(); }
+    if (p.k === "grow") { const s = stageOf(p, nowMs), ripe = nowMs >= p.at, c = p.c;
+      sprites.push({ y: FY + y + 0.75, draw: () => { const hop = ripe ? Math.abs(Math.sin(t * 3 + x * 0.9 + y)) * 2 : 0; drawCrop(ctx, c, ripe ? 1 : Math.min(0.92, s), px + 20, py + 33 - hop, t);
+        if (ripe && Math.sin(t * 2.5 + x * 1.3 + y * 2.1) > 0.85) { ctx.fillStyle = "#fff"; ctx.save(); ctx.translate(px + 31, py + 9); ctx.rotate(t); ctx.fillRect(-4, -1, 8, 2); ctx.fillRect(-1, -4, 2, 8); ctx.restore(); } } }); }
+  }
+  for (const j of me.jobs) { const px = (FX + j.x) * T, py = (FY + j.y) * T; ctx.setLineDash([5, 4]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(px + 3, py + 3, T - 6, T - 6); ctx.setLineDash([]); }
+  if (hover && !ATTRACT && !me.jobs.length) { const px = (FX + hover.x) * T, py = (FY + hover.y) * T; ctx.strokeStyle = "#fff9"; ctx.lineWidth = 2; ctx.strokeRect(px + 2, py + 2, T - 4, T - 4); }
+  const people = farmers(dt, now);
+  for (const f of people) sprites.push({ y: f.y + 0.05, draw: () => drawFarmer(ctx, f.x * T, f.y * T + 12, f) });
+  sprites.sort((a, b) => a.y - b.y);
+  for (const s of sprites) s.draw();
+  // butterflies and the clouds' shadows drifting over
+  for (let i = 0; i < 4; i++) { const bx = (FX + FW / 2 + Math.sin(t * 0.3 + i * 2) * 9) * T, by = (FY + 2 + i * 2 + Math.sin(t * 0.7 + i) * 1.5) * T, f2 = Math.abs(Math.sin(t * 14 + i)) * 5; leaf(ctx, bx - 3, by, 3.5, f2 + 1, 0.3, ["#ffffff", "#ffd23f", "#ff9fd6", "#a3d5ff"][i]); leaf(ctx, bx + 3, by, 3.5, f2 + 1, -0.3, ["#ffffff", "#ffd23f", "#ff9fd6", "#a3d5ff"][i]); }
+  ctx.fillStyle = "#0000000d"; for (let i = 0; i < 3; i++) { const cx = (((t * 14 + i * 470) % (MW * T + 600)) - 300), cy = (4 + i * 5.5) * T; leaf(ctx, cx, cy, 170, 70, 0, "#0000000f"); leaf(ctx, cx + 90, cy + 20, 110, 50, 0, "#0000000a"); }
+  drawFx(now);
+  // name tags in screen pixels so they stay readable
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (!ATTRACT) for (const f of people) {
+    const sx = (f.x * T - cam.x) * z + W / 2, sy = (f.y * T - 40 - cam.y) * z + H / 2 - 6;
+    if (sx < -80 || sx > W + 80 || sy < -40 || sy > H + 60) continue;
+    ctx.font = "700 12px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000a";
+    const label = f.name + (bagCount(f.bag || {}) ? ` · ${bagCount(f.bag)}` : "");
+    ctx.strokeText(label, sx, sy); ctx.fillStyle = f.mine ? "#ffe066" : "#fff"; ctx.fillText(label, sx, sy);
+  }
+}
+
+// ── HUD & BOARD ─────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const touchUI = matchMedia("(pointer: coarse)").matches;
+let board = null, lastUnlocked = null, paidSeen = null;
+function toast(text) { if (ATTRACT) return; const el = $("toast"); el.textContent = text; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 2200); }
+const CROP_H = { turnip: 30, carrot: 28, tomato: 34, corn: 42, pumpkin: 24, sunflower: 57 }; // how tall each ripe crop draws, for the seed-bar icons
+function buildSeeds() {
+  $("seeds").innerHTML = "";
+  for (const c of CONFIG.crops) {
+    const b = document.createElement("button"), icon = document.createElement("canvas"), label = document.createElement("div");
+    b.className = "seed"; b.dataset.c = c.id; icon.width = icon.height = 72;
+    const g = icon.getContext("2d"), s = Math.min(1.7, 60 / CROP_H[c.id]); g.translate(36, 65); g.scale(s, s); drawCrop(g, c.id, 1, 0, 0, 0);
+    b.append(icon, label);
+    b.addEventListener("pointerdown", (e) => { e.preventDefault(); if (farmView().unlocked.includes(c.id)) { me.seed = c.id; } else tryUnlock(c.id); updateSeeds(); });
+    $("seeds").append(b);
+  }
+}
+function updateSeeds() {
+  const f = farmView();
+  for (const b of $("seeds").children) {
+    const c = CROP[b.dataset.c], open = f.unlocked.includes(c.id);
+    b.classList.toggle("locked", !open); b.classList.toggle("on", open && me.seed === c.id); b.classList.toggle("can", !open && f.coins >= c.unlock);
+    b.lastChild.textContent = open ? `🪙 ${Math.round(c.price * priceBonus())}` : `🔒 ${c.unlock}`;
+    b.title = open ? `Plant ${c.name}: sells for ${c.price} each` : `Unlock ${c.name} for ${c.unlock} farm coins`;
+  }
+}
+function hud() {
+  if (ATTRACT) return;
+  const f = farmView(), n = livePlayers().length;
+  $("coins").innerHTML = `🪙 ${f.coins} <small>farm coins</small>`;
+  $("bag").textContent = `🧺 ${bagCount(me.bag)} / ${CONFIG.bagSize}${bagCount(me.bag) >= CONFIG.bagSize ? " · full: go to the stand" : ""}`;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the farm" : ""}`;
+  const ev = net.live && net.live.active && net.live.active[0]; $("event").textContent = ev ? `★ ${ev.title}` : "";
+  updateSeeds();
+}
+/** News from the farm meta, for everyone: a crop got unlocked, someone sold at the stand. */
+function watchFarm() {
+  const f = farmView();
+  if (f.rev < 0) return;
+  if (lastUnlocked && f.unlocked.length > lastUnlocked) { const c = CROP[f.unlocked[f.unlocked.length - 1]]; toast(`🌱 ${c.name} unlocked for everyone!`); sfx("coin"); }
+  lastUnlocked = f.unlocked.length;
+  if (!paidSeen) paidSeen = new Set(f.paid.map((q) => q[0])); // the first look at the stand shows no old sales
+  for (const [k, , coins] of f.paid) if (!paidSeen.has(k)) {
+    paidSeen.add(k);
+    fx.push({ x: CONFIG.sellSpot.x * T, y: CONFIG.sellSpot.y * T - 40, vx: 0, vy: -45, g: 0, life: 1300, t0: performance.now(), text: `+${coins}` });
+    burst(CONFIG.sellSpot.x * T, CONFIG.sellSpot.y * T - 30, 8, "#ffd23f", 90, 80, 700, 3);
+  }
+}
+function sendScore() { if (board && me.unsent > 0) { board.submit(me.unsent, "inc").catch(() => {}); me.unsent = 0; } }
+function showBoard() {
+  $("over").hidden = false;
+  $("mine").textContent = `You've sold ${me.earned} coins' worth this visit.`;
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li>Loading the leaderboard…</li>";
+  const sent = me.unsent > 0 ? board.submit(me.unsent, "inc").catch(() => null) : Promise.resolve();
+  me.unsent = 0;
+  sent.then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>🪙 ${e.score}</span></li>`).join("") : "<li>No one has sold anything yet.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+$("topBtn").onclick = showBoard;
+$("back").onclick = () => { $("over").hidden = true; };
+let audio = null;
+function sfx(kind) {
+  if (ATTRACT) return;
+  try {
+    audio = audio || new AudioContext();
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime, f = { till: 180, plant: 520, water: 700, harvest: 880, coin: 1180 }[kind] || 440;
+    o.type = kind === "till" ? "square" : "triangle"; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * (kind === "till" ? 0.6 : 1.5), t + 0.1);
+    g.gain.setValueAtTime(kind === "till" ? 0.03 : 0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.17);
+  } catch {}
+}
+/** Two players picked one color at once (or a farmhand wears it): the later sessionId picks another. */
+function playerColors() { return Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([id, p]) => field("look:" + id, p.look, {}).c).concat(myLook.c); }
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([id, p]) => ({ id, c: field("look:" + id, p.look, {}).c }));
+  const bots = botList().map((b) => b.c);
+  if (!others.some((o) => o.c === myLook.c && o.id < net.sessionId) && !bots.includes(myLook.c)) return;
+  const taken = new Set([...others.map((o) => o.c), ...bots]), c = COLORS.find((col) => !taken.has(col));
+  if (c) { myLook.c = c; net.me.set("look", JSON.stringify(myLook)); }
+}
+
+// ── INPUT ───────────────────────────────────────────────────────────────────────────
+let hover = null, dragging = false;
+/** Screen point -> map tile, through the camera that drew the last frame. */
+const toTile = (sx, sy) => ({ x: (sx - W / 2) / cam.z / T + cam.x / T, y: (sy - H / 2) / cam.z / T + cam.y / T });
+const plotUnder = (w) => { const x = Math.floor(w.x) - FX, y = Math.floor(w.y) - FY; return x >= 0 && y >= 0 && x < FW && y < FH ? { x, y } : null; };
+function queuePlot(p) { if (p && me.jobs.length < CONFIG.jobMax && !me.jobs.some((j) => j.x === p.x && j.y === p.y)) me.jobs.push(p); }
+cv.addEventListener("pointerdown", (e) => {
+  e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {}
+  if (ATTRACT) return;
+  const w = toTile(e.clientX, e.clientY), p = plotUnder(w);
+  if (p) { dragging = true; queuePlot(p); return; } // taps and drags add plots to the queue
+  me.jobs = [];
+  const st = CONFIG.stand;
+  if (w.x >= st.x && w.x < st.x + st.w && w.y >= st.y - 1 && w.y < st.y + st.h + 1) { me.path = route(me, CONFIG.sellSpot); return; }
+  me.path = route(me, solid(Math.floor(w.x), Math.floor(w.y)) ? nearestFree(w.x, w.y) : w);
+});
+cv.addEventListener("pointermove", (e) => {
+  const w = toTile(e.clientX, e.clientY), p = plotUnder(w);
+  if (e.pointerType === "mouse") hover = p;
+  if (dragging) queuePlot(p);
+});
+for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, () => { dragging = false; });
+cv.addEventListener("pointerleave", () => { hover = null; });
+addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (k === " " || k === "e") { e.preventDefault(); const p = plotUnder(me); if (p && performance.now() - me.toolAt >= CONFIG.actMs) { me.jobs = []; workPlot(p.x, p.y); } }
+  if (k >= "1" && k <= "6") { const c = CONFIG.crops[+k - 1]; if (farmView().unlocked.includes(c.id)) me.seed = c.id; else tryUnlock(c.id); updateSeeds(); }
+  if (k.startsWith("arrow")) e.preventDefault();
+  keys.add(k);
+});
+addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+addEventListener("blur", () => keys.clear());
+document.addEventListener("touchmove", (e) => { if (e.target === cv) e.preventDefault(); }, { passive: false });
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let last = performance.now(), lastHb = 0, lastHud = 0, lastScore = 0;
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be stamped before `last`
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
+  if (isHost()) hostTick(dt, now); else host.adopted = false;
+  syncView();
+  myTick(dt, now);
+  draw(now, dt);
+  if (now - lastHud > 150) { lastHud = now; hud(); watchFarm(); }
+  if (now - lastScore > 15000) { lastScore = now; sendScore(); }
+  requestAnimationFrame(frame);
+}
+
+(async function start() {
+  document.body.classList.toggle("attract", ATTRACT);
+  if (ATTRACT) $("net").textContent = "";
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("act", (m, from) => { if (isHost()) applyAct(from, m, true); });
+  net.on("sell", (m, from) => { if (isHost()) applySell(from, m, true); });
+  net.on("unlock", (m) => { if (isHost()) applyUnlock(m); });
+  net.on("memory", (m) => { if (m && typeof m.text === "string") toast(m.text.slice(0, 80)); });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") { player = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }); board = player.leaderboard(CONFIG.board); }
+  let name = ""; try { name = localStorage.getItem("mpa-name") || ""; } catch {}
+  myLook.n = name || pick(["Sunny", "Happy", "Busy", "Lucky", "Merry", "Rosy"]) + " " + pick(["Sprout", "Seedling", "Farmer", "Pumpkin", "Clover"]);
+  const taken = new Set(playerColors().slice(0, -1).concat(botList().map((b) => b.c)));
+  myLook.c = COLORS.find((c) => !taken.has(c)) || pick(COLORS);
+  net.me.set({ look: JSON.stringify(myLook), hb: Date.now() });
+  addEventListener("pagehide", sendScore);
+  buildSeeds();
+  startedAt = performance.now();
+  me.x += rnd(-3, 3); // spread out along the path
+  if (ATTRACT) { memory.ready = true; me.x = FX + 10.5; me.y = FY + 2.5; }
+  else {
+    loadMemory();
+    me.hint = true;
+    $("hint").textContent = touchUI ? "Tap a plot: till, plant, water, harvest · drag to do a row · sell at the stand" : "Click a plot: till, plant, water, harvest · drag to do a row · sell at the stand";
+    setTimeout(() => { $("hint").style.opacity = 0; }, 12000);
+  }
+  cam.x = (ATTRACT ? FX + FW / 2 : me.x) * T; cam.y = (ATTRACT ? FY + FH / 2 : me.y) * T;
+  setInterval(memoryTick, 1000);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

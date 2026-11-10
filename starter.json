@@ -1,0 +1,23 @@
+{
+  "name": "Farm Together",
+  "genre": "sandbox",
+  "dim": "2D",
+  "mode": "Co-op",
+  "players": "1–8",
+  "hook": "Grow one farm with friends. It keeps growing.",
+  "how": "Tap a plot and your farmer tills it, plants it, waters it and harvests it. Crops grow in real time, even while you're away. Sell your basket at the stand and spend the farm's coins on new crops.",
+  "controls": "Tap or click plots (drag to do a row), tap the stand to sell; WASD + Space, 1–6 for seeds",
+  "uses": [
+    ["World memory", "The farm is remembered by the players who worked it: whoever comes back first brings it back, crops still growing."],
+    ["Host-run rules", "The host's browser checks every till, plant, water, harvest and sale; if it leaves, the next player takes over."],
+    ["Bots", "Farmhands work the field and sell at the stand until enough people join."],
+    ["Live ops", "Make crops grow faster or sell for more with no new deploy; an event's title shows on screen."],
+    ["Leaderboard", "Coins each player has earned at the stand, all time."],
+    ["Live sync", "Everyone sees every plot, crop and farmer change at once."]
+  ],
+  "ideas": [
+    "Add chickens that lay eggs you can sell",
+    "Add rain that waters every crop at once",
+    "Let crows steal ripe crops unless you build a scarecrow"
+  ]
+}
