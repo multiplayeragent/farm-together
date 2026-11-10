@@ -1002,6 +1002,7 @@ document.addEventListener("touchmove", (e) => { if (e.target === cv) e.preventDe
 // ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
 let last = performance.now(), lastHb = 0, lastHud = 0, lastScore = 0;
 function frame(now) {
+  requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be stamped before `last`
   if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
   if (isHost()) hostTick(dt, now); else host.adopted = false;
@@ -1010,7 +1011,6 @@ function frame(now) {
   draw(now, dt);
   if (now - lastHud > 150) { lastHud = now; hud(); watchFarm(); }
   if (now - lastScore > 15000) { lastScore = now; sendScore(); }
-  requestAnimationFrame(frame);
 }
 
 (async function start() {
