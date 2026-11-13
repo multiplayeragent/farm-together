@@ -38,6 +38,7 @@
   .card p { margin: 4px 0; font-size: 14px; color: #6b5a44; }
   .card ol { text-align: left; margin: 12px 0; padding-left: 26px; font-size: 14px; min-height: 40px; }
   .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .card li.msg { list-style: none; margin-left: -26px; text-align: center; color: #6b5a44; }
   button.go { width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: #ff9f1c; color: #fff; font: 700 17px system-ui, sans-serif; cursor: pointer; }
   .attract .hud, .attract #seeds, .attract #topBtn { display: none !important; }
 </style>
@@ -56,7 +57,7 @@
     <h2>Top farmers</h2>
     <p>Coins earned at the stand, all time</p>
     <div id="mine"></div>
-    <ol id="board"><li>Loading the leaderboard…</li></ol>
+    <ol id="board"><li class="msg">Loading the leaderboard…</li></ol>
     <button class="go" id="back">Back to the farm</button>
   </div>
 </div>
@@ -109,6 +110,8 @@ const CONFIG = {
   jobMax: 12,              // plots you can queue up by tapping or dragging
   botPause: [500, 1400],   // ms a farmhand waits between jobs
   botSellAt: 5,            // a farmhand heads to the stand with this many crops
+  botPrefer: { harvest: 0, water: 2, plant: 3, till: 6 }, // tiles a farmhand will walk further for a harvest than a water, plant or till
+  botUnlockAt: 2,          // a farmhand unlocks the next crop when the farm has this many times its price (you get first pick)
   growSpeed: 1,            // crops grow this many times faster (live config: growSpeed)
   priceBonus: 1,           // stand prices are multiplied by this (live config: priceBonus)
   rowsPerFlush: 3,         // most plot rows the host writes at once (5 times a second)
@@ -528,10 +531,11 @@ function applySell(from, m, human) {
   return coins;
 }
 /** An "unlock" intent: spend farm coins on a new crop for everyone. */
-function applyUnlock(m) {
+function applyUnlock(m, human = true) {
   const c = m && m.c, f = host.farm;
   if (!CROP[c] || f.unlocked.includes(c) || f.coins < CROP[c].unlock) return;
-  f.coins -= CROP[c].unlock; f.unlocked.push(c); f.rev++; host.farmDirty = true;
+  f.coins -= CROP[c].unlock; f.unlocked.push(c); host.farmDirty = true;
+  if (human) f.rev++;
 }
 
 function flush(now) {
@@ -584,11 +588,11 @@ function pickTask(w) {
     const all = Object.values(lists).flat().sort((p, q) => p.d - q.d);
     return all.length ? all[Math.floor(Math.random() * Math.min(2, all.length))] : null;
   }
-  for (const a of ["harvest", "water", "plant", "till"]) {
-    const l = lists[a].sort((p, q) => p.d - q.d);
-    if (l.length && (a !== "till" || Math.random() < 0.5)) return l[Math.floor(Math.random() * Math.min(3, l.length))];
-  }
-  return null;
+  // Nearby work first: each job type counts as a few tiles further than the one before it, so a worker
+  // plants the bare soil at its feet instead of crossing the field for every ripe crop (which left the field bare).
+  if (Math.random() < 0.5) lists.till = [];
+  const all = Object.entries(lists).flatMap(([a, l]) => l.map((j) => ({ ...j, s: j.d + CONFIG.botPrefer[a] }))).sort((p, q) => p.s - q.s);
+  return all.length ? all[Math.floor(Math.random() * Math.min(3, all.length))] : null;
 }
 /** Bots like the crops they have just unlocked best. */
 function botSeed() { const u = farmView().unlocked; return u[Math.min(u.length - 1, Math.floor(Math.pow(Math.random(), 0.6) * u.length))]; }
@@ -599,6 +603,8 @@ function botStep(b, dt, now) {
   b.tool = "";
   if (b.selling) { // at the stand: sell everything
     applySell(b.id, { k: "b" + Math.random().toString(36).slice(2, 8), bag: b.bag }, false);
+    const f = host.farm, next = CONFIG.crops.find((c) => !f.unlocked.includes(c.id)); // spend spare farm coins on the next crop, like you can
+    if (next && f.coins >= next.unlock * CONFIG.botUnlockAt) applyUnlock({ c: next.id }, false);
     b.bag = {}; b.selling = false; b.nextAt = now + rnd(...CONFIG.botPause); return;
   }
   if (b.job) {
@@ -935,13 +941,14 @@ function showBoard() {
   $("over").hidden = false;
   $("mine").textContent = `You've sold ${me.earned} coins' worth this visit.`;
   const list = $("board");
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading the leaderboard…</li>";
+  // Status lines get class "msg" so they don't show up as a numbered entry.
+  if (!board) { list.innerHTML = `<li class="msg">Leaderboards need a connection.</li>`; return; }
+  list.innerHTML = `<li class="msg">Loading the leaderboard…</li>`;
   const sent = me.unsent > 0 ? board.submit(me.unsent, "inc").catch(() => null) : Promise.resolve();
   me.unsent = 0;
   sent.then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>🪙 ${e.score}</span></li>`).join("") : "<li>No one has sold anything yet.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>🪙 ${e.score}</span></li>`).join("") : `<li class="msg">No one has sold anything yet.</li>`;
+  }).catch(() => { list.innerHTML = `<li class="msg">Couldn't load the leaderboard.</li>`; });
 }
 $("topBtn").onclick = showBoard;
 $("back").onclick = () => { $("over").hidden = true; };
@@ -974,7 +981,7 @@ const plotUnder = (w) => { const x = Math.floor(w.x) - FX, y = Math.floor(w.y) -
 function queuePlot(p) { if (p && me.jobs.length < CONFIG.jobMax && !me.jobs.some((j) => j.x === p.x && j.y === p.y)) me.jobs.push(p); }
 cv.addEventListener("pointerdown", (e) => {
   e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {}
-  if (ATTRACT) return;
+  if (ATTRACT || e.button > 0) return; // only the main button (or a finger) works the farm
   const w = toTile(e.clientX, e.clientY), p = plotUnder(w);
   if (p) { dragging = true; queuePlot(p); return; } // taps and drags add plots to the queue
   me.jobs = [];
@@ -988,11 +995,14 @@ cv.addEventListener("pointermove", (e) => {
   if (dragging) queuePlot(p);
 });
 for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, () => { dragging = false; });
+cv.addEventListener("contextmenu", (e) => e.preventDefault()); // a right-click on the farm doesn't open the browser menu
 cv.addEventListener("pointerleave", () => { hover = null; });
 addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
+  if (!$("over").hidden) return; // the top-farmers card is open: the farm waits
   if (k === " " || k === "e") { e.preventDefault(); const p = plotUnder(me); if (p && performance.now() - me.toolAt >= CONFIG.actMs) { me.jobs = []; workPlot(p.x, p.y); } }
-  if (k >= "1" && k <= "6") { const c = CONFIG.crops[+k - 1]; if (farmView().unlocked.includes(c.id)) me.seed = c.id; else tryUnlock(c.id); updateSeeds(); }
+  const digit = /^(Digit|Numpad)([1-6])$/.exec(e.code); // by code, so Shift or Caps Lock don't stop seed picking
+  if (digit && !e.repeat) { const c = CONFIG.crops[+digit[2] - 1]; if (farmView().unlocked.includes(c.id)) me.seed = c.id; else tryUnlock(c.id); updateSeeds(); }
   if (k.startsWith("arrow")) e.preventDefault();
   keys.add(k);
 });

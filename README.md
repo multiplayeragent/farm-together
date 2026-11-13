@@ -31,7 +31,7 @@ Without a key it still runs, offline with bot farmhands, and remembers your farm
 - One `index.html`. The comment at the top of the script maps the code and explains the multiplayer.
 - **World memory:** The farm is remembered by the players who worked it. Every player saves a copy every 10 seconds and when they leave; whoever comes back first brings it back for everyone, and a copy with more work in it replaces a newer, emptier one. Crops are stored with the time they ripen, so they keep growing while nobody is there.
 - **Host-run rules:** The host's browser checks every till, plant, water, harvest and sale, and keeps the farm's coins. If it leaves, the next player takes over.
-- **Bots:** Farmhands work the field and sell at the stand until enough people join.
+- **Bots:** Farmhands work the field, sell at the stand and unlock the next crop with spare farm coins until enough people join.
 - **Live ops:** Make crops grow faster (`growSpeed`) or sell for more (`priceBonus`) from the live config, with no new deploy. A running live event's title shows on screen.
 - **Leaderboard:** Coins each player has earned at the stand, all time, under the trophy button.
 - **Live sync:** Everyone sees every plot, crop and farmer change at once.

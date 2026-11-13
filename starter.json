@@ -10,7 +10,7 @@
   "uses": [
     ["World memory", "The farm is remembered by the players who worked it: whoever comes back first brings it back, crops still growing."],
     ["Host-run rules", "The host's browser checks every till, plant, water, harvest and sale; if it leaves, the next player takes over."],
-    ["Bots", "Farmhands work the field and sell at the stand until enough people join."],
+    ["Bots", "Farmhands work the field, sell at the stand and unlock the next crop with spare farm coins until enough people join."],
     ["Live ops", "Make crops grow faster or sell for more with no new deploy; an event's title shows on screen."],
     ["Leaderboard", "Coins each player has earned at the stand, all time."],
     ["Live sync", "Everyone sees every plot, crop and farmer change at once."]
